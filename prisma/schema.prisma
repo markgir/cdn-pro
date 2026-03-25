@@ -1,0 +1,99 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/cdn_manager_improved/nodejs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+// Admin users for authentication
+model admin {
+  id         Int      @id @default(autoincrement())
+  email      String   @unique
+  password   String   // bcrypt hashed
+  name       String?
+  role       String   @default("admin") // admin, editor, viewer
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  last_login DateTime?
+}
+
+// Origin servers (e-commerce stores)
+model origin {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  origin_url    String   // e.g., https://shop.example.com
+  type          String   @default("generic") // woocommerce, prestashop, generic
+  cdn_hostname  String?  // Optional custom CDN hostname
+  cache_ttl     Int      @default(3600) // seconds
+  active        Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  
+  // Relations
+  request_logs  request_log[]
+  cache_entries cache_entry[]
+}
+
+// Cache entries metadata (for tracking what's in Redis)
+model cache_entry {
+  id          Int      @id @default(autoincrement())
+  origin_id   Int
+  cache_key   String   @unique
+  url_path    String
+  content_type String?
+  size_bytes  Int?
+  hit_count   Int      @default(0)
+  created_at  DateTime @default(now())
+  expires_at  DateTime?
+  last_hit_at DateTime?
+  
+  // Relations
+  origin      origin   @relation(fields: [origin_id], references: [id], onDelete: Cascade)
+  
+  @@index([origin_id])
+  @@index([cache_key])
+  @@index([expires_at])
+}
+
+// Request logs for monitoring and analytics
+model request_log {
+  id            Int      @id @default(autoincrement())
+  origin_id     Int?
+  method        String   // GET, POST, etc.
+  url           String
+  status_code   Int
+  cache_status  String   // HIT, MISS, NO-ORIGIN, MISS-STORED
+  duration_ms   Int      // response time
+  size_bytes    Int?
+  client_ip     String?
+  user_agent    String?
+  referer       String?
+  timestamp     DateTime @default(now())
+  
+  // Relations
+  origin        origin?  @relation(fields: [origin_id], references: [id], onDelete: SetNull)
+  
+  @@index([origin_id])
+  @@index([cache_status])
+  @@index([timestamp])
+}
+
+// Cache statistics (aggregated metrics)
+model cache_stats {
+  id           Int      @id @default(autoincrement())
+  origin_id    Int?
+  total_hits   Int      @default(0)
+  total_misses Int      @default(0)
+  total_bytes  BigInt   @default(0)
+  date         DateTime @default(now()) @db.Date
+  
+  @@unique([origin_id, date])
+  @@index([date])
+}
